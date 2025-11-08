@@ -16,6 +16,29 @@ let wakeRunning = false;
 let inCommandMode = false;
 let sortMode = "created";
 
+
+/* --- Audio cue --- */
+function playDing() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = "sine"; // smooth tone
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 = 880Hz
+    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime); // gentle volume
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.2); // short beep (~200ms)
+  } catch (err) {
+    console.warn("🔇 Ding playback failed:", err);
+  }
+}
+
+
 /* --- Speech Helpers --- */
 function speak(text) {
   if (!synth) return;
@@ -186,11 +209,110 @@ async function processCommand(cmd) {
     return;
   }
 
+
+    // 🎯 Sorting Commands
+  if (lower.includes("sort by priority")) {
+    sortMode = "priority";
+    speak("Sorting by priority.");
+    await refreshTasks();
+    return;
+  }
+
+  if (lower.includes("sort by category")) {
+    sortMode = "category";
+    speak("Sorting by category.");
+    await refreshTasks();
+    return;
+  }
+
+  if (lower.includes("sort by due") || lower.includes("sort by date") || lower.includes("sort by deadline")) {
+    sortMode = "due";
+    speak("Sorting by due date.");
+    await refreshTasks();
+    return;
+  }
+
+  if (lower.includes("sort by created") || lower.includes("sort by added")) {
+    sortMode = "created";
+    speak("Sorting by created time.");
+    await refreshTasks();
+    return;
+  }
+
+
   console.log("-> Command not understood.");
   speak("Sorry, I didn't understand that.");
 }
 
 /* --- Task Helpers --- */
+
+
+/* --- Task Listing Commands --- */
+async function listAllTasks() {
+  console.log("📋 Listing all tasks...");
+  try {
+    const res = await fetch("/tasks");
+    const tasks = await res.json();
+    if (!tasks.length) {
+      speak("You have no tasks.");
+      showStatus("No tasks found.", "orange");
+      return;
+    }
+
+    const names = tasks.map(t => t.name).join(", ");
+    speak(`You have ${tasks.length} tasks: ${names}`);
+    // showStatus(`All tasks: ${names}`, "blue");
+  } catch (err) {
+    console.error("Error listing all tasks:", err);
+    speak("Failed to fetch tasks.");
+  }
+}
+
+async function listPendingTasks() {
+  console.log("📋 Listing pending tasks...");
+  try {
+    const res = await fetch("/tasks");
+    const tasks = await res.json();
+    const pending = tasks.filter(t => !t.done);
+
+    if (!pending.length) {
+      speak("You have no pending tasks.");
+      showStatus("No pending tasks.", "green");
+      return;
+    }
+
+    const names = pending.map(t => t.name).join(", ");
+    speak(`You have ${pending.length} pending tasks: ${names}`);
+    // showStatus(`Pending tasks: ${names}`, "blue");
+  } catch (err) {
+    console.error("Error listing pending tasks:", err);
+    speak("Failed to fetch pending tasks.");
+  }
+}
+
+async function listCompletedTasks() {
+  console.log("📋 Listing completed tasks...");
+  try {
+    const res = await fetch("/tasks");
+    const tasks = await res.json();
+    const completed = tasks.filter(t => t.done);
+
+    if (!completed.length) {
+      speak("You have no completed tasks.");
+      showStatus("No completed tasks.", "gray");
+      return;
+    }
+
+    const names = completed.map(t => t.name).join(", ");
+    speak(`You have ${completed.length} completed tasks: ${names}`);
+    // showStatus(`Completed tasks: ${names}`, "blue");
+  } catch (err) {
+    console.error("Error listing completed tasks:", err);
+    speak("Failed to fetch completed tasks.");
+  }
+}
+
+
 async function markTaskByName(name) {
   console.log(`🧠 Looking for task to MARK: "${name}"`);
   const res = await fetch("/tasks");
@@ -325,7 +447,9 @@ function initRecognizers() {
       // After speaking, start recognition
       utter.onend = () => {
         console.log("🎙️ App finished speaking. Starting command recognition.");
+        playDing();
         showStatus("Speak now!", "green");
+
         commandRecognition.start();
       };
 
